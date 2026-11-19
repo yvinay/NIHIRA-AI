@@ -30,12 +30,14 @@ jobs:
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
+          PICOVOICE_ACCESS_KEY: ${{ secrets.PICOVOICE_ACCESS_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           CLAUDE_MODEL: ${{ vars.CLAUDE_MODEL }}
         run: |
           echo "sdk.dir=$ANDROID_HOME" > local.properties
           echo "GEMINI_API_KEY=$GEMINI_API_KEY" >> local.properties
           echo "GEMINI_MODEL=${GEMINI_MODEL:-gemini-3.8-flash}" >> local.properties
+          echo "PICOVOICE_ACCESS_KEY=$PICOVOICE_ACCESS_KEY" >> local.properties
           echo "ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY" >> local.properties
           echo "CLAUDE_MODEL=${CLAUDE_MODEL:-claude-haiku-5-5}" >> local.properties
 
@@ -47,8 +49,18 @@ jobs:
           mkdir -p ~/.android
           echo "$KS" | base64 -d > ~/.android/debug.keystore
 
+      - name: Download offline voice model for "Hi Nihira" (Vosk, free)
+        run: |
+          mkdir -p app/src/main/assets /tmp/vosk
+          curl -L --fail -o /tmp/vosk.zip https://alphacephei.com/vosk/models/vosk-model-small-en-in-0.4.zip \
+            || curl -L --fail -o /tmp/vosk.zip https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip
+          unzip -q /tmp/vosk.zip -d /tmp/vosk
+          rm -rf app/src/main/assets/vosk-model
+          mv "$(find /tmp/vosk -mindepth 1 -maxdepth 1 -type d | head -1)" app/src/main/assets/vosk-model
+          ls app/src/main/assets/vosk-model
+
       - name: Build the APK
-        run: gradle assembleDebug --no-daemon --stacktrace
+        run: gradle assembleDebug --no-daemon
 
       - name: Upload the APK
         uses: actions/upload-artifact@v4
