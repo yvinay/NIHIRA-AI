@@ -98,7 +98,7 @@ object Tools {
                 listOf("percent")))
             .put(tool("open_settings", "Open a phone settings page.",
                 mapOf("page" to prop("string", "Which settings page.",
-                    listOf("main", "wifi", "bluetooth", "display", "sound", "battery", "location", "apps")))),
+                    listOf("main", "wifi", "bluetooth", "display", "sound", "battery", "location", "apps"))),
                 listOf("page")))
     }
 }
