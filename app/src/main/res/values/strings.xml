@@ -1,0 +1,11 @@
+<resources>
+    <string name="app_name">NIHIRA</string>
+    <string name="tap_to_speak">Tap to speak</string>
+    <string name="approve">Approve</string>
+    <string name="cancel">Cancel</string>
+    <string name="always_ask">Ask my approval before every action</string>
+    <string name="type_hint">…or type a command</string>
+    <string name="send">Send</string>
+    <string name="change_voice">Change NIHIRA\'s voice</string>
+    <string name="voice_sample">Hi, I\'m Nihira. How does this voice sound?</string>
+</resources>

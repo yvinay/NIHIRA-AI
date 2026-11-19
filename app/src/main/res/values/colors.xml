@@ -1,0 +1,8 @@
+<resources>
+    <color name="ink">#FF3B2F63</color>
+    <color name="ink_soft">#FF8A7FAF</color>
+    <color name="lilac_deep">#FF8B6CF5</color>
+    <color name="lilac_soft">#FFEDE5FF</color>
+    <color name="bg_top">#FFF8F3FF</color>
+    <color name="bg_bottom">#FFEFF8FF</color>
+</resources>

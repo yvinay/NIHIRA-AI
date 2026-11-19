@@ -1,0 +1,10 @@
+# Copy these lines into local.properties (Android Studio creates that file for you).
+# NEVER commit local.properties or share your APK - the key is built into the app.
+
+# Gemini brain (default). Free key: https://aistudio.google.com/apikey
+GEMINI_API_KEY=your-gemini-key-here
+GEMINI_MODEL=gemini-3.8-flash
+
+# Optional: Claude brain, used only if GEMINI_API_KEY is empty
+# ANTHROPIC_API_KEY=sk-ant-...
+# CLAUDE_MODEL=claude-haiku-5-5
