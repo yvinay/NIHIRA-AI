@@ -19,14 +19,17 @@ android {
         applicationId = "com.nihira.assistant"
         minSdk = 26
         targetSdk = 34
-        versionCode = 2
-        versionName = "0.2-phase2"
+        versionCode = 3
+        versionName = "0.3-phase3"
 
         // Gemini (default brain)
         buildConfigField("String", "GEMINI_API_KEY",
             "\"${localProps.getProperty("GEMINI_API_KEY", "")}\"")
         buildConfigField("String", "GEMINI_MODEL",
             "\"${localProps.getProperty("GEMINI_MODEL", "gemini-3.8-flash")}\"")
+        // Picovoice (Phase 3 "Hi Nihira" wake word)
+        buildConfigField("String", "PICOVOICE_ACCESS_KEY",
+            "\"${localProps.getProperty("PICOVOICE_ACCESS_KEY", "")}\"")
         // Claude (optional alternative, used only if no Gemini key)
         buildConfigField("String", "ANTHROPIC_API_KEY",
             "\"${localProps.getProperty("ANTHROPIC_API_KEY", "")}\"")
@@ -52,4 +55,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.4")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("ai.picovoice:porcupine-android:4.0.2")   // wake word (with key)
+    implementation("com.alphacephei:vosk-android:0.3.75")    // wake word (free, offline)
+    implementation("net.java.dev.jna:jna:5.18.1@aar")
 }

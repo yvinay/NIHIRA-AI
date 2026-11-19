@@ -11,11 +11,39 @@ object CommandRouter {
     private fun act(name: String, vararg kv: Pair<String, Any>) =
         Action(name, JSONObject().apply { kv.forEach { put(it.first, it.second) } })
 
+    private fun messageCommand(t: String): Action? {
+        val app = if (Regex("\\b(sms|text message)\\b").containsMatchIn(t)) "sms" else "whatsapp"
+        val patterns = listOf(
+            // tell amma on whatsapp (that) i will be late
+            Regex("^(?:tell|message|text|send a message to|send message to|whatsapp) (.+?) (?:on|via|in|through) (?:whatsapp|sms)(?: that| saying)? (.+)$"),
+            // send (a) whatsapp/sms to amma saying i will be late
+            Regex("^send (?:an? )?(?:whatsapp|sms|text|message)(?: message)? to (.+?)(?: that| saying)? (.+)$"),
+            // whatsapp amma i will be late / message ravi saying ...
+            Regex("^(?:whatsapp|message|text) (\\S+)(?: that| saying)? (.+)$"),
+            // tell amma (that) i will be late
+            Regex("^tell (\\S+)(?: that)? (.+)$"),
+        )
+        for (p in patterns) {
+            val m = p.find(t) ?: continue
+            val contact = m.groupValues[1].trim()
+            val message = m.groupValues[2].trim()
+            if (contact.isEmpty() || message.isEmpty() || contact in setOf("me", "us", "him", "her", "them")) continue
+            return act("send_message", "contact" to contact,
+                "message" to message.replace(Regex("\\bi\\b"), "I").replaceFirstChar { it.uppercase() }, "app" to app)
+        }
+        return null
+    }
+
     fun route(raw: String): Action? {
         val t = raw.lowercase(java.util.Locale.ENGLISH)
             .replace(Regex("^(hey |ok |hi )?nihira[, ]*"), "")
             .replace(Regex("^(please |can you |could you )"), "")
             .trim(' ', '.', '?', '!')
+            .replace(Regex("^(tel|tal|till|tail)\\b"), "tell")        // common mishearings of "tell"
+            .replace(Regex("\\bwhats ?app\\b"), "whatsapp")
+
+        // ----- messages: "tell Amma on WhatsApp I will be late", "send SMS to Ravi saying ..." -----
+        messageCommand(t)?.let { return it }
 
         Regex("^(?:call|phone|dial) (.+)$").find(t)?.let {
             return act("make_call", "contact" to it.groupValues[1])

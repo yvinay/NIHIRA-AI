@@ -2,8 +2,16 @@ package com.nihira.assistant
 
 import android.Manifest
 import android.animation.ValueAnimator
+import android.app.KeyguardManager
+import android.app.NotificationManager
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
+import android.provider.Settings
+import android.view.WindowManager
 import android.view.Gravity
 import android.view.View
 import android.view.inputmethod.EditorInfo
@@ -20,6 +28,7 @@ import androidx.lifecycle.lifecycleScope
 import com.google.android.material.materialswitch.MaterialSwitch
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
@@ -40,6 +49,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var approvalText: TextView
     private lateinit var alwaysAsk: MaterialSwitch
     private lateinit var typeInput: EditText
+    private lateinit var wakeSwitch: MaterialSwitch
+    private var wokenSession = false
 
     private var currentJob: Job? = null
     private var pendingApproval: CompletableDeferred<Boolean>? = null
@@ -72,6 +83,7 @@ class MainActivity : AppCompatActivity() {
         approvalText = findViewById(R.id.approvalText)
         alwaysAsk = findViewById(R.id.alwaysAskSwitch)
         typeInput = findViewById(R.id.typeInput)
+        wakeSwitch = findViewById(R.id.wakeSwitch)
 
         voice = VoiceEngine(this) { status(it) }
         executor = ActionExecutor(this)
@@ -95,7 +107,101 @@ class MainActivity : AppCompatActivity() {
             if (actionId == EditorInfo.IME_ACTION_SEND) { submitTyped(); true } else false
         }
 
+        wakeSwitch.isChecked = prefs.getBoolean("wake_word", false)
+        wakeSwitch.setOnCheckedChangeListener { _, on -> setWakeWord(on) }
+
         askPermissions()
+        handleWakeIntent(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleWakeIntent(intent)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // e.g. after a reboot: switch the listener back on when you open NIHIRA
+        if (prefs.getBoolean("wake_word", false) && !WakeWordService.running &&
+            granted(Manifest.permission.RECORD_AUDIO)) {
+            runCatching { WakeWordService.start(this) }
+        }
+    }
+
+    // ---------------- Phase 3: "Hi Nihira" ----------------
+
+    private fun setWakeWord(on: Boolean) {
+        if (on && BuildConfig.PICOVOICE_ACCESS_KEY.isBlank() && !VoskWakeEngine.hasModel(this)) {
+            bubble(Who.INFO, "This build has no wake-word engine. Rebuild with the latest workflow file.")
+            wakeSwitch.isChecked = false
+            return
+        }
+        prefs.edit().putBoolean("wake_word", on).apply()
+        if (!on) {
+            WakeWordService.stop(this)
+            bubble(Who.INFO, "Wake word off")
+            return
+        }
+        askPermissions()
+        // Lets NIHIRA pop up over the lock screen when she hears you.
+        if (!Settings.canDrawOverlays(this)) {
+            bubble(Who.INFO, "Please allow “Display over other apps” for NIHIRA, then come back.")
+            runCatching {
+                startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
+            }
+        }
+        // Stops Android / OnePlus battery saver from killing the listener.
+        val pm = getSystemService(PowerManager::class.java)
+        if (!pm.isIgnoringBatteryOptimizations(packageName)) {
+            runCatching {
+                startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName")))
+            }
+        }
+        if (granted(Manifest.permission.RECORD_AUDIO)) {
+            WakeWordService.start(this)
+            bubble(Who.INFO, "Wake word on · say “Hi Nihira” anytime")
+        }
+    }
+
+    private fun handleWakeIntent(i: Intent?) {
+        if (i == null || !i.getBooleanExtra(WakeWordService.EXTRA_WOKEN, false)) return
+        i.removeExtra(WakeWordService.EXTRA_WOKEN)
+        getSystemService(NotificationManager::class.java).cancel(WakeWordService.ALERT_ID)
+        showOverLockScreen(true)
+        if (currentJob?.isActive == true) return
+        wokenSession = true
+        currentJob = lifecycleScope.launch {
+            busy()
+            say("Yes?")
+            val heard = hear()
+            if (heard == null) say("I didn't catch that.") else handle(heard)
+            idle()
+        }
+    }
+
+    private fun showOverLockScreen(show: Boolean) {
+        if (Build.VERSION.SDK_INT >= 27) {
+            setShowWhenLocked(show)
+            setTurnScreenOn(show)
+        } else {
+            @Suppress("DEPRECATION")
+            val flags = WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+            if (show) window.addFlags(flags) else window.clearFlags(flags)
+        }
+    }
+
+    /** Asks for fingerprint / face / PIN. Android never lets an app unlock the phone by itself. */
+    private suspend fun ensureUnlocked(): Boolean {
+        val km = getSystemService(KeyguardManager::class.java)
+        if (!km.isKeyguardLocked) return true
+        say("Please unlock with your face or fingerprint.")
+        return suspendCancellableCoroutine { cont ->
+            km.requestDismissKeyguard(this, object : KeyguardManager.KeyguardDismissCallback() {
+                override fun onDismissSucceeded() { if (cont.isActive) cont.resume(true) }
+                override fun onDismissCancelled() { if (cont.isActive) cont.resume(false) }
+                override fun onDismissError() { if (cont.isActive) cont.resume(false) }
+            })
+        }
     }
 
     override fun onDestroy() {
@@ -163,7 +269,9 @@ class MainActivity : AppCompatActivity() {
             } catch (e: Exception) {
                 bubble(Who.INFO, e.message ?: "Couldn't reach the brain.")
                 CommandRouter.route(text)?.let { actions = listOf(it) }
-                if (actions.isEmpty()) reply = "I couldn't reach my brain. Please check the internet connection."
+                if (actions.isEmpty()) reply =
+                    if ((e.message ?: "").contains("busy")) "Gemini is busy right now. Please try again in a minute."
+                    else "I couldn't reach my brain. Please check the internet connection."
             }
         } else {
             CommandRouter.route(text)?.let { actions = listOf(it) }
@@ -173,6 +281,13 @@ class MainActivity : AppCompatActivity() {
         if (actions.isEmpty()) {
             say(reply.ifBlank { "Sorry, I'm not sure how to help with that." })
             return
+        }
+
+        // Locked phone: anything beyond flashlight/volume needs your face or fingerprint first.
+        if (actions.any { Tools.needsUnlock(it) } && !ensureUnlocked()) {
+            actions = actions.filterNot { Tools.needsUnlock(it) }
+            say("Okay, I'll keep the phone locked.")
+            if (actions.isEmpty()) return
         }
 
         // Approve everything first, while NIHIRA is still on screen
@@ -242,11 +357,19 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private suspend fun hear(): String? = suspendCancellableCoroutine { cont ->
+    private suspend fun hear(): String? {
+        if (WakeWordService.running) {          // free the microphone for speech recognition
+            WakeWordService.pause(this)
+            delay(300)
+        }
+        return listenOnce()
+    }
+
+    private suspend fun listenOnce(): String? = suspendCancellableCoroutine { cont ->
         voice.listen(
             onHeard = { if (cont.isActive) cont.resume(it) },
             onFail = { reason ->
-                bubble(Who.INFO, reason)
+                if (reason != "Listening was cancelled.") bubble(Who.INFO, reason)
                 if (cont.isActive) cont.resume(null)
             }
         )
@@ -265,6 +388,13 @@ class MainActivity : AppCompatActivity() {
         micButton.contentDescription = getString(R.string.tap_to_speak)
         approvalCard.visibility = View.GONE
         status("Ready")
+        WakeWordService.resume(this)            // listen for "Hi Nihira" again
+        if (wokenSession) {
+            wokenSession = false
+            showOverLockScreen(false)
+            // Still locked (nothing needed unlocking)? Go back to the lock screen.
+            if (getSystemService(KeyguardManager::class.java).isKeyguardLocked) moveTaskToBack(true)
+        }
     }
 
     /** Updates the status line and the orb's colour: lilac idle, mint listening, blue thinking, peach waiting. */
@@ -343,7 +473,8 @@ class MainActivity : AppCompatActivity() {
             Manifest.permission.RECORD_AUDIO,
             Manifest.permission.READ_CONTACTS,
             Manifest.permission.CALL_PHONE,
-        ).filterNot { granted(it) }
+        ).let { if (Build.VERSION.SDK_INT >= 33) it + Manifest.permission.POST_NOTIFICATIONS else it }
+            .filterNot { granted(it) }
         if (needed.isNotEmpty()) permissionLauncher.launch(needed.toTypedArray())
     }
 }

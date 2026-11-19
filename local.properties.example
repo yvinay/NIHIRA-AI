@@ -5,6 +5,9 @@
 GEMINI_API_KEY=your-gemini-key-here
 GEMINI_MODEL=gemini-3.8-flash
 
+# Phase 3 wake word "Hi Nihira". Free AccessKey: https://console.picovoice.ai
+PICOVOICE_ACCESS_KEY=your-picovoice-access-key
+
 # Optional: Claude brain, used only if GEMINI_API_KEY is empty
 # ANTHROPIC_API_KEY=sk-ant-...
 # CLAUDE_MODEL=claude-haiku-5-5

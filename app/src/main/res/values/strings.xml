@@ -8,4 +8,5 @@
     <string name="send">Send</string>
     <string name="change_voice">Change NIHIRA\'s voice</string>
     <string name="voice_sample">Hi, I\'m Nihira. How does this voice sound?</string>
+    <string name="wake_switch">Wake me with “Hi Nihira” (works when locked)</string>
 </resources>

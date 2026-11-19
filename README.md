@@ -52,6 +52,19 @@ Approve by saying **yes / okay / haan / houdu**, reject with **no / cancel / nah
 
 **Adding a new action:** add its definition and risk in `Tools.kt`, then `describe` + `execute` cases in `ActionExecutor.kt`.
 
+## Phase 3: "Hi Nihira" (works on the lock screen)
+
+Two engines, chosen automatically:
+- **Vosk (default, free, offline, no key).** The GitHub build downloads a small Indian-English model (~36 MB).
+- **Picovoice (optional upgrade).** Add GitHub secret `PICOVOICE_ACCESS_KEY` (free at https://console.picovoice.ai)
+  and rebuild. Better accuracy and battery. If it fails, NIHIRA falls back to Vosk.
+
+In NIHIRA, switch on **Wake me with "Hi Nihira"** and allow: notifications, "Display over other apps", and "unrestricted" battery.
+
+When locked, NIHIRA lights up the screen and listens. Flashlight, volume and questions work while locked;
+everything else asks for your face / fingerprint first (Android never lets apps unlock the phone on their own).
+After a reboot, open NIHIRA once to restart the listener.
+
 ## Known limits (fixed in later phases)
 
 - WhatsApp/SMS open with your message ready, but **you tap Send** → Phase 4 (Accessibility Service) will press it.

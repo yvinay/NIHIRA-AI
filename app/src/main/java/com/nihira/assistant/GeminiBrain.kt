@@ -1,6 +1,7 @@
 package com.nihira.assistant
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -9,6 +10,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
+import java.io.InterruptedIOException
 import java.util.concurrent.TimeUnit
 
 /**
@@ -20,9 +22,20 @@ class GeminiBrain(private val apiKey: String, private val model: String) : Brain
     override val label = "Gemini ($model)"
 
     private val http = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(45, TimeUnit.SECONDS)
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(20, TimeUnit.SECONDS)
+        .callTimeout(25, TimeUnit.SECONDS)
         .build()
+
+    /** Busy / overloaded / slow: worth trying again or with another model. */
+    private class TryAgain(msg: String) : IOException(msg)
+
+    /**
+     * Your model first (tried twice), then lighter models that are usually less busy.
+     * Google sometimes returns "503 high demand"; this keeps NIHIRA working through it.
+     */
+    private val attempts: List<String> = listOf(model, model) +
+        FALLBACK_MODELS.filter { it != model }
 
     /** Converts our shared tool list into Gemini's functionDeclarations format. */
     private val functionDeclarations: JSONArray by lazy {
@@ -38,6 +51,26 @@ class GeminiBrain(private val apiKey: String, private val model: String) : Brain
     }
 
     override suspend fun think(userText: String): Brain.Thought = withContext(Dispatchers.IO) {
+        var lastProblem = "unknown problem"
+        for ((i, m) in attempts.withIndex()) {
+            try {
+                return@withContext ask(m, userText)
+            } catch (e: TryAgain) {
+                lastProblem = e.message ?: "busy"
+            } catch (e: InterruptedIOException) {      // timeout
+                lastProblem = "Gemini took too long to answer"
+            } catch (e: ModelNotFound) {
+                lastProblem = e.message ?: "model not found"
+                continue                                 // no wait, just try the next model
+            }
+            if (i < attempts.lastIndex) delay(700L * (i + 1))
+        }
+        throw IOException("Gemini is busy right now ($lastProblem).")
+    }
+
+    private class ModelNotFound(msg: String) : IOException(msg)
+
+    private fun ask(model: String, userText: String): Brain.Thought {
         val body = JSONObject()
             .put("systemInstruction", JSONObject()
                 .put("parts", JSONArray().put(JSONObject().put("text", Brain.systemPrompt()))))
@@ -60,7 +93,11 @@ class GeminiBrain(private val apiKey: String, private val model: String) : Brain
                 val msg = runCatching {
                     JSONObject(raw).getJSONObject("error").getString("message")
                 }.getOrDefault(raw.take(300))
-                throw IOException("Gemini error ${response.code}: $msg")
+                when (response.code) {
+                    429, 500, 502, 503, 504 -> throw TryAgain("$model: ${response.code}")
+                    404 -> throw ModelNotFound("$model not available")
+                    else -> throw IOException("Gemini error ${response.code}: $msg")   // e.g. wrong API key
+                }
             }
 
             val json = JSONObject(raw)
@@ -78,7 +115,12 @@ class GeminiBrain(private val apiKey: String, private val model: String) : Brain
                 }
                 if (part.has("text")) reply.append(part.optString("text")).append(' ')
             }
-            Brain.Thought(reply.toString().trim(), actions)
+            return Brain.Thought(reply.toString().trim(), actions)
         }
+    }
+
+    companion object {
+        /** Tried in order when the main model is busy. Change GEMINI_MODEL to pick the first one. */
+        private val FALLBACK_MODELS = listOf("gemini-3.5-flash-lite", "gemini-2.5-flash")
     }
 }

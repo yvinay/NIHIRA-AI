@@ -34,6 +34,10 @@ object Tools {
         "send_message" to Risk.HIGH,
     )
 
+    /** Actions that are safe to do while the phone is still locked. Everything else needs an unlock. */
+    private val worksWhileLocked = setOf("flashlight", "set_volume")
+    fun needsUnlock(a: Action): Boolean = a.name !in worksWhileLocked
+
     /** Unknown tools are treated as HIGH risk, so they always need approval. */
     fun riskOf(a: Action): Risk = riskLevels[a.name] ?: Risk.HIGH
 
